@@ -1,7 +1,7 @@
-variable "subscriptionId" {
+variable "subId" {
 }
 
-variable "clientId" {
+variable "clinId" {
 }
 
 variable "clientSecret" {
@@ -99,7 +99,12 @@ variable "admin_username" {
   default     = "vmadmin"
 }
 
-variable "admin_password" {
+variable "admin_pass" {
   description = "administrator password (recommended to disable password auth)"
   default     = "admin02!"
+}
+
+variable "new_string_var" {
+  type = "string"
+  default = "newstringtest"
 }
