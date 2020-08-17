@@ -1,7 +1,7 @@
-variable "subId" {
+variable "subscriptionId" {
 }
 
-variable "clinId" {
+variable "clientId" {
 }
 
 variable "clientSecret" {
