@@ -99,7 +99,7 @@ variable "admin_username" {
   default     = "vmadmin"
 }
 
-variable "admin_password" {
+variable "admin_pass" {
   description = "administrator password (recommended to disable password auth)"
   default     = "admin02!"
 }
