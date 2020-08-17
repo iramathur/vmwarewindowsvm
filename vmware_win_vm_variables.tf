@@ -105,6 +105,6 @@ variable "admin_pass" {
 }
 
 variable "new_string_var" {
-  type = "string"
+  type = string
   default = "newstringtest"
 }
