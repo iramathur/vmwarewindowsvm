@@ -1,75 +1,134 @@
-provider "vsphere" {
-  user           = "${var.user}"
-  password       = "${var.password}"
-  vsphere_server = "${var.host}"
-  version        = "< 1.16.0"
-
-  # If you have a self-signed cert
-  allow_unverified_ssl = true
+resource "random_id" "server" {
+  byte_length = 7
 }
 
-data "vsphere_datacenter" "dc" {
-  name = "${var.region}"
+resource "azurerm_resource_group" "rg" {
+  name     = "${var.resource_group}-${random_id.server.hex}"
+  location = var.region
 }
 
-data "vsphere_datastore" "datastore" {
-  name          = "${var.datastore}"
-  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+resource "azurerm_storage_account" "stor" {
+  name                     = "stor${random_id.server.hex}"
+  location                 = var.region
+  resource_group_name      = azurerm_resource_group.rg.name
+  account_tier             = var.storage_account_tier
+  account_replication_type = var.storage_replication_type
 }
 
-data "vsphere_resource_pool" "pool" {
-  name          = "${var.cluster}/Resources"
-  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+resource "azurerm_availability_set" "avset" {
+  name                         = "avset${random_id.server.hex}"
+  location                     = var.region
+  resource_group_name          = azurerm_resource_group.rg.name
+  platform_fault_domain_count  = 2
+  platform_update_domain_count = 2
+  managed                      = true
 }
 
-data "vsphere_network" "network" {
-  name          = "${var.network_interface}"
-  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+resource "azurerm_public_ip" "lbpip" {
+  name                = "${random_id.server.hex}-ip"
+  location            = var.region
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Dynamic"
+  domain_name_label   = "lb${random_id.server.hex}"
 }
 
-data "vsphere_virtual_machine" "template" {
-  name          = "${var.templateName}"
-  datacenter_id = "${data.vsphere_datacenter.dc.id}"
+resource "azurerm_virtual_network" "vnet" {
+  name                = "${random_id.server.hex}${var.virtual_network_name}"
+  location            = var.region
+  address_space       = [var.address_space]
+  resource_group_name = azurerm_resource_group.rg.name
 }
 
-resource "vsphere_virtual_machine" "vm" {
-  count             = "${var.count}"
-  name              = "${var.vmname}${format("%02d", count.index + 1 + var.offset)}"
-  resource_pool_id  = "${data.vsphere_resource_pool.pool.id}"
-  datastore_id      = "${data.vsphere_datastore.datastore.id}"
-  folder            = "${var.foldername}"
+resource "azurerm_subnet" "subnet" {
+  name                 = "subnet${random_id.server.hex}"
+  virtual_network_name = azurerm_virtual_network.vnet.name
+  resource_group_name  = azurerm_resource_group.rg.name
+  address_prefix       = var.subnet_prefix
+}
 
-  num_cpus  = "${var.cpucount}"
-  memory    = "${var.memsize}"
-  guest_id  = "${data.vsphere_virtual_machine.template.guest_id}"
-  scsi_type = "${data.vsphere_virtual_machine.template.scsi_type}"
+resource "azurerm_lb" "lb" {
+  resource_group_name = azurerm_resource_group.rg.name
+  name                = "lb${random_id.server.hex}"
+  location            = var.region
 
-  network_interface {
-    network_id = "${data.vsphere_network.network.id}"
+  frontend_ip_configuration {
+    name                 = "LoadBalancerFrontEnd"
+    public_ip_address_id = azurerm_public_ip.lbpip.id
+  }
+}
+
+resource "azurerm_lb_backend_address_pool" "backend_pool" {
+  resource_group_name = azurerm_resource_group.rg.name
+  loadbalancer_id     = azurerm_lb.lb.id
+  name                = "BackendPool${random_id.server.hex}"
+}
+
+resource "azurerm_lb_rule" "lb_rule" {
+  resource_group_name            = azurerm_resource_group.rg.name
+  loadbalancer_id                = azurerm_lb.lb.id
+  name                           = "LBRule${random_id.server.hex}"
+  protocol                       = "tcp"
+  frontend_port                  = 80
+  backend_port                   = 80
+  frontend_ip_configuration_name = "LoadBalancerFrontEnd"
+  enable_floating_ip             = false
+  backend_address_pool_id        = azurerm_lb_backend_address_pool.backend_pool.id
+  idle_timeout_in_minutes        = 5
+  probe_id                       = azurerm_lb_probe.lb_probe.id
+  depends_on                     = [azurerm_lb_probe.lb_probe]
+}
+
+resource "azurerm_lb_probe" "lb_probe" {
+  resource_group_name = azurerm_resource_group.rg.name
+  loadbalancer_id     = azurerm_lb.lb.id
+  name                = "tcpProbe${random_id.server.hex}"
+  protocol            = "tcp"
+  port                = 80
+  interval_in_seconds = 5
+  number_of_probes    = var.vm_count_per_subnet
+}
+
+resource "azurerm_network_interface" "nic" {
+  name                = "nic${count.index}${random_id.server.hex}"
+  location            = var.region
+  resource_group_name = azurerm_resource_group.rg.name
+  count               = var.vm_count_per_subnet
+
+  ip_configuration {
+    name                                    = "ipconfig${count.index}${random_id.server.hex}"
+    subnet_id                               = azurerm_subnet.subnet.id
+    private_ip_address_allocation           = "Dynamic"
+    
+  }
+}
+
+resource "azurerm_virtual_machine" "vm" {
+  name                  = "vms${count.index}${random_id.server.hex}"
+  location              = var.region
+  resource_group_name   = azurerm_resource_group.rg.name
+  availability_set_id   = azurerm_availability_set.avset.id
+  vm_size               = var.vm_size
+  network_interface_ids = [element(azurerm_network_interface.nic.*.id, count.index)]
+  count                 = var.vm_count_per_subnet
+
+  storage_image_reference {
+    publisher = var.image_publisher
+    offer     = var.image_offer
+    sku       = var.image_sku
+    version   = var.image_version
   }
 
-wait_for_guest_net_timeout = 0
-
-  disk {
-    label = "windisk-${count.index}.vmdk"
-    size  = 30
-    thin_provisioned = "${data.vsphere_virtual_machine.template.disks.0.thin_provisioned}"
+  storage_os_disk {
+    name          = "osdisk${count.index}${random_id.server.hex}"
+    create_option = "FromImage"
   }
-  clone {
-    template_uuid = "${data.vsphere_virtual_machine.template.id}"
-    customize {
-    timeout = 20
-    windows_options {
-       computer_name  = "${var.vmname}${format("%02d", count.index + 1 + var.offset)}"
-       #computer_name  = "terraform-test"
-	 join_domain = "itomcmp.servicenow.com"
-        domain_admin_user     = "serhiy.adm@itomcmp.servicenow.com"
-        domain_admin_password = "cmpdev123"
 
-      }
+  os_profile {
+    computer_name  = var.hostname
+    admin_username = var.admin_username
+    admin_password = var.admin_password
+  }
 
-network_interface {
-      }
-    }
+  os_profile_windows_config {
   }
 }
