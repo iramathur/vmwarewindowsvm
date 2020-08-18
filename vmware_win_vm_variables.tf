@@ -106,5 +106,4 @@ variable "admin_password" {
 
 variable "var_new_string" {
   type = string
-  default = "dummy"
 }
