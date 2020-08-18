@@ -103,3 +103,8 @@ variable "admin_password" {
   description = "administrator password (recommended to disable password auth)"
   default     = "admin02!"
 }
+
+variable "var_new_string" {
+  type = string
+  default = "dummy"
+}
