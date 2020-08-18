@@ -108,7 +108,7 @@ resource "azurerm_virtual_machine" "vm" {
   resource_group_name   = azurerm_resource_group.rg.name
   availability_set_id   = azurerm_availability_set.avset.id
   #vm_size              = var.vm_size
-  vm_size               = "Standard_D2s_v3"
+  vm_size               = "Basic_A0"
   network_interface_ids = [element(azurerm_network_interface.nic.*.id, count.index)]
   count                 = var.vm_count_per_subnet
 
